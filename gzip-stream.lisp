@@ -1,5 +1,5 @@
 ;; Copyright (c) 2008 Sean Ross
-;; 
+;;
 ;; Permission is hereby granted, free of charge, to any person
 ;; obtaining a copy of this software and associated documentation
 ;; files (the "Software"), to deal in the Software without
@@ -8,10 +8,10 @@
 ;; copies of the Software, and to permit persons to whom the
 ;; Software is furnished to do so, subject to the following
 ;; conditions:
-;; 
+;;
 ;; The above copyright notice and this permission notice shall be
 ;; included in all copies or substantial portions of the Software.
-;; 
+;;
 ;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 ;; EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
 ;; OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -65,7 +65,7 @@
   (salza2:finish-compression (deflate-stream stream))
   (finish-output (under-file stream))
   (values))
-  
+
 (defmethod stream-clear-output ((stream gzip-output-stream))
   (error "Cannot clear output of gzip output streams."))
 
@@ -122,13 +122,13 @@
 (defun fill-buffer (stream)
   (with-slots (read-buffer bit-reader data-buffer last-end) stream
     (setf read-buffer
-          (make-in-memory-input-stream 
+          (make-in-memory-input-stream
            (with-output-to-sequence (tmp)
              (setf last-end
                    (process-deflate-block bit-reader tmp
                                           data-buffer last-end)))))))
 
-(defmethod stream-read-byte ((stream gzip-input-stream)) 
+(defmethod stream-read-byte ((stream gzip-input-stream))
   (with-slots (read-buffer last-end) stream
     (let ((next-byte (read-byte read-buffer nil nil)))
       (if (null next-byte)
@@ -136,6 +136,36 @@
               (progn (fill-buffer stream) (stream-read-byte stream))
               :eof)
           next-byte))))
+
+;(defmethod SB-GRAY:STREAM-READ-CHAR ((s flexi-streams:in-memory-stream))
+;  (code-char (read-byte s)))
+;
+;(defmethod SB-GRAY:STREAM-PEEK-CHAR ((s flexi-streams:in-memory-stream))
+;  (let ((char (code-char (peek-byte s))))
+;    char))
+;
+(defmethod flexi-streams::PEEK-BYTE ((stream gzip-input-stream) &optional peek-type (eof-error-p t) eof-value)
+  (with-slots (read-buffer last-end) stream
+    (let ((next-byte (peek-byte read-buffer peek-type nil eof-value)))
+      (if (null next-byte)
+          (if last-end
+              (progn (fill-buffer stream) (stream-peek-byte stream))
+              :eof)
+          next-byte))))
+
+;(defmethod flexi-streams::PEEK-CHAR ((s gzip-input-stream))
+;  (let ((char (code-char (peek-byte s))))
+;    char))
+
+(defmethod stream-peek-byte ((stream gzip-input-stream))
+  (flexi-streams::peek-byte stream))
+;  (with-slots (read-buffer last-end) stream
+;    (let ((next-byte (peek-byte read-buffer)))
+;      (if (null next-byte)
+;          (if last-end
+;              (progn (fill-buffer stream) (stream-peek-byte stream))
+;              :eof)
+;          next-byte))))
 
 (defmethod stream-read-sequence ((stream gzip-input-stream) sequence start end &key)
   (let ((start (or start 0))
@@ -154,6 +184,13 @@ Returns :eof when end of file is reached."
     (if in-byte
 	(code-char in-byte)
 	:eof)))
+
+(defmethod stream-peek-char ((stream gzip-input-stream))
+  "Peeks the next character from the given STREAM."
+  (let ((in-byte (peek-byte stream)))
+    (if in-byte
+        (code-char in-byte)
+        :eof)))
 
 (defmethod stream-read-line ((stream gzip-input-stream))
   "Reads the next line from the given gzip-input stream. The #\Newline
@@ -184,7 +221,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 	   (t
 	    (return (values (subseq res 0 index) t))))))))
 
-                      
+
 (defmethod stream-listen ((stream gzip-input-stream))
   (listen (underfile-of stream)))
 
@@ -201,7 +238,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
                                   (:output 'gzip-output-stream))
                                 :understream (open ,path ,@open-args :element-type 'octet)))
            (,abort t))
-       (unwind-protect 
+       (unwind-protect
            (multiple-value-prog1 (progn ,@body)
              (setf ,abort nil))
          (close ,var :abort ,abort)))))
@@ -209,7 +246,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 (defun gzip (in-file out-file)
   "GZIPS the contents of in-file and writes the output to outfile."
   (with-open-file (in-stream in-file :element-type 'octet)
-    (with-open-gzip-file (out-stream out-file :direction :output 
+    (with-open-gzip-file (out-stream out-file :direction :output
                                      :element-type 'octet :if-exists :supersede)
       (let ((buffer (make-array +buffer-size+ :element-type 'octet)))
         (loop for x = (read-sequence buffer in-stream)
@@ -220,7 +257,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 (defun gunzip (in-file out-file)
   "Extracts the contents of GZIP file IN-FILE and writes the output to OUT-FILE."
   (with-open-gzip-file (ins in-file)
-    (with-open-file (outs out-file :direction :output 
+    (with-open-file (outs out-file :direction :output
                           :element-type 'octet :if-exists :supersede)
       (let ((buffer (make-array +buffer-size+ :element-type 'octet)))
         (loop for x = (read-sequence buffer ins)
