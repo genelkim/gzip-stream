@@ -122,12 +122,16 @@
 
 (defun fill-buffer (stream)
   (with-slots (read-buffer bit-reader data-buffer last-end) stream
-    (setf read-buffer
-          (make-in-memory-input-stream
-           (with-output-to-sequence (tmp)
-             (setf last-end
-                   (process-deflate-block bit-reader tmp
-                                          data-buffer last-end)))))))
+    (let ((pre-end last-end))   
+      (setf read-buffer
+            (make-in-memory-input-stream
+              (with-output-to-sequence (tmp)
+                (setf last-end
+                      (process-deflate-block bit-reader tmp
+                                             data-buffer last-end)))))
+      ;; If last-end is smaller than pre-end, we've flushed the buffer, so double size.
+      (when (and pre-end last-end (< last-end pre-end))
+        (setf data-buffer (adjust-array data-buffer (* 2 (length data-buffer))))))))
 
 (defmethod stream-read-byte ((stream gzip-input-stream))
   (with-slots (read-buffer last-end) stream
