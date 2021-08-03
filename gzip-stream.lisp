@@ -26,7 +26,7 @@
 
 ;; Set as parameter to allow re-sizing for larger inputs.
 (declaim (type fixnum +buffer-size+))
-(defparameter +buffer-size+ (* 32 1024 1024))
+(defparameter +buffer-size+ (* 128 1024))
 
 (defun make-buffer ()
   (make-array +buffer-size+ :element-type 'octet))
@@ -112,7 +112,15 @@
                 (make-in-memory-input-stream ""))
    (data-buffer :accessor data-buffer-of :initform (make-buffer))
    (bit-reader :accessor bit-reader-of :initform nil)
-   (last-end :initform 0)))
+   (last-end :initform 0)
+   ;; Info to compute file position.
+   ;; The file position is relative to the compressed bit-reader buffer. This
+   ;; however gets decompressed into the data-buffer in blocks which is
+   ;; subsequently read through the read-buffer. We approximate the file
+   ;; position in between decompression blocks by keeping track of compressed
+   ;; bit. Then we can compute the relative positions of bit and byte reads by
+   ;; scaling the blocks to each other.
+   (prev-bit-reader-pos :initform 0)))
 
 (defmethod initialize-instance :after ((obj gzip-input-stream) &key (skip-gzip-header-p t))
   (when skip-gzip-header-p
@@ -127,17 +135,18 @@
   (close (underfile-of stream) :abort abort))
 
 (defun fill-buffer (stream)
-  (with-slots (read-buffer bit-reader data-buffer last-end) stream
-    (let ((pre-end last-end))   
+  (with-slots (read-buffer bit-reader data-buffer last-end
+                           prev-bit-reader-pos) stream
+    (let ((bit-reader-pos (file-position (bit-reader-stream bit-reader))))    
       (setf read-buffer
-            (make-in-memory-input-stream
-              (with-output-to-sequence (tmp)
-                (setf last-end
-                      (process-deflate-block bit-reader tmp
-                                             data-buffer last-end)))))
-      ;; If last-end is smaller than pre-end, we've flushed the buffer, so double size.
-      (when (and pre-end last-end (< last-end pre-end))
-        (setf data-buffer (adjust-array data-buffer (* 2 (length data-buffer))))))))
+              (make-in-memory-input-stream
+                (with-output-to-sequence (tmp)
+                  (setf last-end
+                        (process-deflate-block bit-reader tmp
+                                               data-buffer last-end)))))
+      ;;; When bit-reader positions change, update prev-bit-reader-pos.
+      (when (not (= bit-reader-pos (file-position (bit-reader-stream bit-reader))))
+        (setf prev-bit-reader-pos bit-reader-pos)))))
 
 (defmethod stream-read-byte ((stream gzip-input-stream))
   (with-slots (read-buffer last-end) stream
@@ -229,8 +238,19 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 	    (return (values (subseq res 0 index) t))))))))
 
 (defmethod stream-file-position ((stream gzip-input-stream))
-  (with-slots (read-buffer last-end data-buffer bit-reader) stream
-    (file-position (bit-reader-stream bit-reader))))
+  (with-slots (read-buffer bit-reader prev-bit-reader-pos) stream
+    ;; Where the bit-reader was before + how much progress we've made toward
+    ;; the current bit-reader position.
+    (let ((read-buffer-len (flexi-streams::vector-stream-end read-buffer)))
+      (+ prev-bit-reader-pos ; bit-reader distance prior to this read-buffer 
+         (floor (* 
+                  ;; Proporition of read-buffer we've completed.
+                  (if (> read-buffer-len 0)
+                      (/ (file-position read-buffer) read-buffer-len)
+                      0)
+                  ;; bit-reader distance covered in current read-buffer.
+                  (- (file-position (bit-reader-stream bit-reader))
+                     prev-bit-reader-pos)))))))
 
 
 (defmethod stream-listen ((stream gzip-input-stream))
