@@ -230,14 +230,6 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 
 (defmethod stream-file-position ((stream gzip-input-stream))
   (with-slots (read-buffer last-end data-buffer bit-reader) stream
-    ;(when (and last-end (file-position read-buffer))
-      ;(+ last-end (file-position read-buffer)))))
-    ;(format t "read bufffer: ~s    last-end: ~s    data-buffer: ~s    bit-reader: ~s~%"
-    ;        (when read-buffer (file-position read-buffer))
-    ;        last-end
-    ;        (when data-buffer (length data-buffer))
-    ;        (when (bit-reader-stream bit-reader)
-    ;          (file-position (bit-reader-stream bit-reader))))
     (file-position (bit-reader-stream bit-reader))))
 
 
