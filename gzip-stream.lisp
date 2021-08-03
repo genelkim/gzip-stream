@@ -26,7 +26,7 @@
 
 ;; Set as parameter to allow re-sizing for larger inputs.
 (declaim (type fixnum +buffer-size+))
-(defparameter +buffer-size+ (* 32 1024))
+(defparameter +buffer-size+ (* 32 1024 1024))
 
 (defun make-buffer ()
   (make-array +buffer-size+ :element-type 'octet))
