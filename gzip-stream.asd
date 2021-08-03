@@ -2,9 +2,9 @@
 
 (in-package :gzip-system)
 
-(defsystem gzip-stream
+(defsystem gzip-stream2
   :serial t
-  :version "0.2.8"
+  :version "0.0.1"
   :components ((:file "package")
                (:file "ifstar")
                (:file "inflate")

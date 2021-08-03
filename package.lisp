@@ -22,7 +22,7 @@
 ;; OTHER DEALINGS IN THE SOFTWARE.
 ;;
 
-(defpackage #:gzip-stream 
+(defpackage #:gzip-stream2 
   (:use :cl :flexi-streams :trivial-gray-streams)
   (:export #:gzip-output-stream #:gzip-input-stream
    #:gzip #:gunzip #:with-open-gzip-file

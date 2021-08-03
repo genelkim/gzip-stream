@@ -136,7 +136,7 @@ that describe the custome huffman tree are themselves huffman coded.
 
 |#
 
-(in-package :gzip-stream)
+(in-package :gzip-stream2)
 
 (defun inflate (p op)
   ;; user callable

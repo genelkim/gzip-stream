@@ -21,11 +21,12 @@
 ;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 ;; OTHER DEALINGS IN THE SOFTWARE.
 ;;
-(in-package :gzip-stream)
+(in-package :gzip-stream2)
 (declaim (optimize speed (safety 1) (debug 1)))
 
+;; Set as parameter to allow re-sizing for larger inputs.
 (declaim (type fixnum +buffer-size+))
-(defconstant +buffer-size+ (* 32 1024))
+(defparameter +buffer-size+ (* 32 1024))
 
 (defun make-buffer ()
   (make-array +buffer-size+ :element-type 'octet))
@@ -137,35 +138,24 @@
               :eof)
           next-byte))))
 
-;(defmethod SB-GRAY:STREAM-READ-CHAR ((s flexi-streams:in-memory-stream))
-;  (code-char (read-byte s)))
-;
-;(defmethod SB-GRAY:STREAM-PEEK-CHAR ((s flexi-streams:in-memory-stream))
-;  (let ((char (code-char (peek-byte s))))
-;    char))
-;
-(defmethod flexi-streams::PEEK-BYTE ((stream gzip-input-stream) &optional peek-type (eof-error-p t) eof-value)
+(defmethod flexi-streams::peek-byte ((stream gzip-input-stream)
+                                     &optional peek-type eof-error-p eof-value)
+  "Implements peek byte for gzip-input-stream.
+
+   Note that the eof-error-p argument is ignored. I can't figure out why it
+   breaks when I propagate it. There are probably some details with recursive
+   redictions depending on the types that are messing with this argument."
+  (declare (ignore eof-error-p))
   (with-slots (read-buffer last-end) stream
-    (let ((next-byte (peek-byte read-buffer peek-type nil eof-value)))
+    (let ((next-byte (peek-byte read-buffer peek-type nil nil)))
       (if (null next-byte)
           (if last-end
               (progn (fill-buffer stream) (stream-peek-byte stream))
               :eof)
           next-byte))))
 
-;(defmethod flexi-streams::PEEK-CHAR ((s gzip-input-stream))
-;  (let ((char (code-char (peek-byte s))))
-;    char))
-
 (defmethod stream-peek-byte ((stream gzip-input-stream))
   (flexi-streams::peek-byte stream))
-;  (with-slots (read-buffer last-end) stream
-;    (let ((next-byte (peek-byte read-buffer)))
-;      (if (null next-byte)
-;          (if last-end
-;              (progn (fill-buffer stream) (stream-peek-byte stream))
-;              :eof)
-;          next-byte))))
 
 (defmethod stream-read-sequence ((stream gzip-input-stream) sequence start end &key)
   (let ((start (or start 0))
@@ -174,7 +164,11 @@
           (let ((byte (stream-read-byte stream)))
             (if (eql byte :eof)
                 (return-from stream-read-sequence  index)
-                (setf (aref sequence index) byte)))
+                (setf (aref sequence index)
+                      ;; Read into character if a character array.
+                      (if (typep sequence '(array character *))
+                          (code-char byte)
+                          byte))))
           :finally (return end))))
 
 (defmethod stream-read-char ((stream gzip-input-stream))
@@ -185,10 +179,13 @@ Returns :eof when end of file is reached."
 	(code-char in-byte)
 	:eof)))
 
+(defmethod stream-peek-byte ((stream gzip-input-stream))
+  "Peeks next byte, redirects to the flexi-stream implementation above."
+  (flexi-streams::peek-byte stream)) ;; TODO: I *think* we can remove the flexi-streams:: since they're exported by them and used by gzip-streams
 (defmethod stream-peek-char ((stream gzip-input-stream))
   "Peeks the next character from the given STREAM."
   (let ((in-byte (peek-byte stream)))
-    (if in-byte
+    (if (and in-byte (not (eql in-byte :eof)))
         (code-char in-byte)
         :eof)))
 
@@ -220,6 +217,18 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 	   ;; end of file
 	   (t
 	    (return (values (subseq res 0 index) t))))))))
+
+(defmethod stream-file-position ((stream gzip-input-stream))
+  (with-slots (read-buffer last-end data-buffer bit-reader) stream
+    ;(when (and last-end (file-position read-buffer))
+      ;(+ last-end (file-position read-buffer)))))
+    ;(format t "read bufffer: ~s    last-end: ~s    data-buffer: ~s    bit-reader: ~s~%"
+    ;        (when read-buffer (file-position read-buffer))
+    ;        last-end
+    ;        (when data-buffer (length data-buffer))
+    ;        (when (bit-reader-stream bit-reader)
+    ;          (file-position (bit-reader-stream bit-reader))))
+    (file-position (bit-reader-stream bit-reader))))
 
 
 (defmethod stream-listen ((stream gzip-input-stream))
