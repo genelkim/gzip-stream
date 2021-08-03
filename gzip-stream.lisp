@@ -56,8 +56,11 @@
   (salza2:compress-octet byte (deflate-stream stream)))
 
 (defmethod stream-write-sequence ((stream gzip-output-stream) sequence start end &key)
-  (loop :for idx :from start :below end :do
-        (write-byte (aref sequence idx) stream)))
+  (let ((write-fn (if (typep (aref sequence start) 'character)
+                      'write-char
+                      'write-byte)))
+    (loop :for idx :from start :below end :do
+          (funcall write-fn (aref sequence idx) stream))))
 
 (defmethod stream-force-output ((stream gzip-output-stream))
   (values))
@@ -91,10 +94,13 @@
   nil)
 
 (defmethod stream-write-char ((stream gzip-output-stream) char)
-  (stream-write-char (under-file stream) char))
+  (stream-write-byte stream (char-code char)))
 
 (defmethod stream-write-string ((stream gzip-output-stream) string &optional start end)
-  (stream-write-string (under-file stream) string start end))
+  (stream-write-sequence stream
+                         string
+                         (if start start 0)
+                         (if end end (length string))))
 
 
 
@@ -249,7 +255,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
     `(let ((,var (make-instance (ecase ,direction
                                   (:input 'gzip-input-stream)
                                   (:output 'gzip-output-stream))
-                                :understream (open ,path ,@open-args :element-type 'octet)))
+                                :understream (open ,path ,@open-args :direction ,direction :element-type 'octet)))
            (,abort t))
        (unwind-protect
            (multiple-value-prog1 (progn ,@body)
