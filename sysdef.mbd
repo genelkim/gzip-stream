@@ -1,6 +1,6 @@
 (in-package :sysdef-user)
-(define-system :gzip-stream (serial-system)
-  (:version 0 2 8)
+(define-system :gzip-stream2 (serial-system)
+  (:version 0 0 1)
   (:components
    "package" "ifstar" "inflate" "gzip-stream" "gzip"
    ("tests" lazy-module (:components "core")))

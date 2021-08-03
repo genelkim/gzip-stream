@@ -1,4 +1,4 @@
-(in-package :gzip-stream)
+(in-package :gzip-stream2)
 
 (defun gzip-string (sequence)
   (with-open-stream (out (make-string-output-stream))

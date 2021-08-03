@@ -23,7 +23,7 @@
 ;;
 ;; inflate.lisp benutzt if*...
 
-(in-package :gzip-stream)
+(in-package :gzip-stream2)
 
 ;; the if* macro used in Allegro:
 ;;

@@ -21,11 +21,12 @@
 ;; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 ;; OTHER DEALINGS IN THE SOFTWARE.
 ;;
-(in-package :gzip-stream)
+(in-package :gzip-stream2)
 (declaim (optimize speed (safety 1) (debug 1)))
 
+;; Set as parameter to allow re-sizing for larger inputs.
 (declaim (type fixnum +buffer-size+))
-(defconstant +buffer-size+ (* 32 1024))
+(defparameter +buffer-size+ (* 32 1024 1024))
 
 (defun make-buffer ()
   (make-array +buffer-size+ :element-type 'octet))
@@ -55,8 +56,11 @@
   (salza2:compress-octet byte (deflate-stream stream)))
 
 (defmethod stream-write-sequence ((stream gzip-output-stream) sequence start end &key)
-  (loop :for idx :from start :below end :do
-        (write-byte (aref sequence idx) stream)))
+  (let ((write-fn (if (typep (aref sequence start) 'character)
+                      'write-char
+                      'write-byte)))
+    (loop :for idx :from start :below end :do
+          (funcall write-fn (aref sequence idx) stream))))
 
 (defmethod stream-force-output ((stream gzip-output-stream))
   (values))
@@ -90,10 +94,13 @@
   nil)
 
 (defmethod stream-write-char ((stream gzip-output-stream) char)
-  (stream-write-char (under-file stream) char))
+  (stream-write-byte stream (char-code char)))
 
 (defmethod stream-write-string ((stream gzip-output-stream) string &optional start end)
-  (stream-write-string (under-file stream) string start end))
+  (stream-write-sequence stream
+                         string
+                         (if start start 0)
+                         (if end end (length string))))
 
 
 
@@ -121,12 +128,16 @@
 
 (defun fill-buffer (stream)
   (with-slots (read-buffer bit-reader data-buffer last-end) stream
-    (setf read-buffer
-          (make-in-memory-input-stream
-           (with-output-to-sequence (tmp)
-             (setf last-end
-                   (process-deflate-block bit-reader tmp
-                                          data-buffer last-end)))))))
+    (let ((pre-end last-end))   
+      (setf read-buffer
+            (make-in-memory-input-stream
+              (with-output-to-sequence (tmp)
+                (setf last-end
+                      (process-deflate-block bit-reader tmp
+                                             data-buffer last-end)))))
+      ;; If last-end is smaller than pre-end, we've flushed the buffer, so double size.
+      (when (and pre-end last-end (< last-end pre-end))
+        (setf data-buffer (adjust-array data-buffer (* 2 (length data-buffer))))))))
 
 (defmethod stream-read-byte ((stream gzip-input-stream))
   (with-slots (read-buffer last-end) stream
@@ -137,35 +148,24 @@
               :eof)
           next-byte))))
 
-;(defmethod SB-GRAY:STREAM-READ-CHAR ((s flexi-streams:in-memory-stream))
-;  (code-char (read-byte s)))
-;
-;(defmethod SB-GRAY:STREAM-PEEK-CHAR ((s flexi-streams:in-memory-stream))
-;  (let ((char (code-char (peek-byte s))))
-;    char))
-;
-(defmethod flexi-streams::PEEK-BYTE ((stream gzip-input-stream) &optional peek-type (eof-error-p t) eof-value)
+(defmethod flexi-streams::peek-byte ((stream gzip-input-stream)
+                                     &optional peek-type eof-error-p eof-value)
+  "Implements peek byte for gzip-input-stream.
+
+   Note that the eof-error-p argument is ignored. I can't figure out why it
+   breaks when I propagate it. There are probably some details with recursive
+   redictions depending on the types that are messing with this argument."
+  (declare (ignore eof-error-p))
   (with-slots (read-buffer last-end) stream
-    (let ((next-byte (peek-byte read-buffer peek-type nil eof-value)))
+    (let ((next-byte (peek-byte read-buffer peek-type nil nil)))
       (if (null next-byte)
           (if last-end
               (progn (fill-buffer stream) (stream-peek-byte stream))
               :eof)
           next-byte))))
 
-;(defmethod flexi-streams::PEEK-CHAR ((s gzip-input-stream))
-;  (let ((char (code-char (peek-byte s))))
-;    char))
-
 (defmethod stream-peek-byte ((stream gzip-input-stream))
   (flexi-streams::peek-byte stream))
-;  (with-slots (read-buffer last-end) stream
-;    (let ((next-byte (peek-byte read-buffer)))
-;      (if (null next-byte)
-;          (if last-end
-;              (progn (fill-buffer stream) (stream-peek-byte stream))
-;              :eof)
-;          next-byte))))
 
 (defmethod stream-read-sequence ((stream gzip-input-stream) sequence start end &key)
   (let ((start (or start 0))
@@ -174,7 +174,11 @@
           (let ((byte (stream-read-byte stream)))
             (if (eql byte :eof)
                 (return-from stream-read-sequence  index)
-                (setf (aref sequence index) byte)))
+                (setf (aref sequence index)
+                      ;; Read into character if a character array.
+                      (if (typep sequence '(array character *))
+                          (code-char byte)
+                          byte))))
           :finally (return end))))
 
 (defmethod stream-read-char ((stream gzip-input-stream))
@@ -185,10 +189,13 @@ Returns :eof when end of file is reached."
 	(code-char in-byte)
 	:eof)))
 
+(defmethod stream-peek-byte ((stream gzip-input-stream))
+  "Peeks next byte, redirects to the flexi-stream implementation above."
+  (flexi-streams::peek-byte stream)) ;; TODO: I *think* we can remove the flexi-streams:: since they're exported by them and used by gzip-streams
 (defmethod stream-peek-char ((stream gzip-input-stream))
   "Peeks the next character from the given STREAM."
   (let ((in-byte (peek-byte stream)))
-    (if in-byte
+    (if (and in-byte (not (eql in-byte :eof)))
         (code-char in-byte)
         :eof)))
 
@@ -221,6 +228,10 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
 	   (t
 	    (return (values (subseq res 0 index) t))))))))
 
+(defmethod stream-file-position ((stream gzip-input-stream))
+  (with-slots (read-buffer last-end data-buffer bit-reader) stream
+    (file-position (bit-reader-stream bit-reader))))
+
 
 (defmethod stream-listen ((stream gzip-input-stream))
   (listen (underfile-of stream)))
@@ -236,7 +247,7 @@ Returns (STR . EOF-P). EOF-P is T when of end of file is reached."
     `(let ((,var (make-instance (ecase ,direction
                                   (:input 'gzip-input-stream)
                                   (:output 'gzip-output-stream))
-                                :understream (open ,path ,@open-args :element-type 'octet)))
+                                :understream (open ,path ,@open-args :direction ,direction :element-type 'octet)))
            (,abort t))
        (unwind-protect
            (multiple-value-prog1 (progn ,@body)

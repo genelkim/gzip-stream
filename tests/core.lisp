@@ -1,8 +1,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (mb:load :tryil))
 
-(defpackage gzip-stream-tests (:use :cl :gzip-stream :tryil))
-(in-package :gzip-stream-tests)
+(defpackage gzip-stream2-tests (:use :cl :gzip-stream2 :tryil))
+(in-package :gzip-stream2-tests)
 
 (define-test gzipping-string ()
   "Ensure that gzipping and gunzipping string works correctly."
